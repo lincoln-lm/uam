@@ -576,6 +576,197 @@ unsigned glsl_program_compute_get_shared_size(glsl_program prg)
 	return linked_shader->Program->info.cs.shared_size;
 }
 
+void dump_uniforms_blocks(glsl_program prg, FILE* out)
+{
+    struct gl_linked_shader* linked = _glsl_program_get_linked_shader(prg);
+    if (!linked) return;
+
+    fprintf(out, "\"uniformBlocks\": [\n");
+
+    bool firstBlock = true;
+
+    for (unsigned i = 0; i < prg->data->NumUniformBlocks; i++) {
+        struct gl_uniform_block* block = &prg->data->UniformBlocks[i];
+        if (!block)
+            continue;
+
+        if (!firstBlock)
+            fprintf(out, ",\n");
+        firstBlock = false;
+
+        fprintf(out, "  {\n");
+        fprintf(out, "    \"index\": %u,\n", i);
+        fprintf(out, "    \"name\": \"%s\",\n", block->Name ? block->Name : "<unnamed>");
+        fprintf(out, "    \"binding\": %u,\n", block->Binding);
+        fprintf(out, "    \"size\": %u,\n", block->UniformBufferSize);
+        fprintf(out, "    \"stageMask\": %u,\n", block->stageref);
+        fprintf(out, "    \"arrayIndex\": %u,\n", block->linearized_array_index);
+        fprintf(out, "    \"packing\": %d,\n", block->_Packing);
+        fprintf(out, "    \"rowMajor\": %s,\n", block->_RowMajor ? "true" : "false");
+
+        fprintf(out, "    \"uniforms\": [\n");
+
+        bool firstUniform = true;
+        for (GLuint u = 0; u < block->NumUniforms; ++u) {
+            struct gl_uniform_buffer_variable* uniform = &block->Uniforms[u];
+            if (!uniform)
+                continue;
+
+            if (!firstUniform)
+                fprintf(out, ",\n");
+            firstUniform = false;
+
+            fprintf(out, "      {\n");
+            fprintf(out, "        \"index\": %u,\n", u);
+            fprintf(out, "        \"name\": \"%s\",\n", uniform->Name ? uniform->Name : "<unnamed>");
+            fprintf(out, "        \"offset\": %u\n", uniform->Offset);
+            fprintf(out, "      }");
+        }
+
+        fprintf(out, "\n    ]\n");
+        fprintf(out, "  }");
+    }
+
+	fprintf(out, "\n],\n");
+	
+    fprintf(out, "\"storageBlocks\": [\n");
+    firstBlock = true;
+
+    for (unsigned i = 0; i < prg->data->NumShaderStorageBlocks; i++) {
+        struct gl_uniform_block* block = &prg->data->ShaderStorageBlocks[i];
+        if (!block)
+            continue;
+
+        if (!firstBlock)
+            fprintf(out, ",\n");
+        firstBlock = false;
+
+        fprintf(out, "  {\n");
+        fprintf(out, "    \"index\": %u,\n", i);
+        fprintf(out, "    \"name\": \"%s\",\n", block->Name ? block->Name : "<unnamed>");
+        fprintf(out, "    \"binding\": %u,\n", block->Binding);
+        fprintf(out, "    \"size\": %u,\n", block->UniformBufferSize);
+        fprintf(out, "    \"stageMask\": %u,\n", block->stageref);
+        fprintf(out, "    \"arrayIndex\": %u,\n", block->linearized_array_index);
+        fprintf(out, "    \"packing\": %d,\n", block->_Packing);
+        fprintf(out, "    \"rowMajor\": %s,\n", block->_RowMajor ? "true" : "false");
+        fprintf(out, "  }");
+    }
+	fprintf(out, "\n]\n");
+}
+
+void dump_inputs(glsl_program prg, FILE* out)
+{
+    struct gl_linked_shader* linked = _glsl_program_get_linked_shader(prg);
+    if (!linked) return;
+
+    fprintf(out, "\"inputs\": [\n");
+
+    bool first = true;
+
+	for (unsigned i = 0; i < prg->data->NumProgramResourceList; ++i) {
+		struct gl_program_resource  *res = &prg->data->ProgramResourceList[i];
+		if (res->Type != GL_PROGRAM_INPUT) 
+			continue;
+
+		struct gl_shader_variable  *input = (struct gl_shader_variable  *)res->Data;
+
+        if (!first)
+            fprintf(out, ",\n");
+        first = false;
+
+        fprintf(out, "    {\n");
+        fprintf(out, "      \"name\": \"%s\",\n", input->name);
+        fprintf(out, "      \"location\": %d\n", input->location);
+        fprintf(out, "    }");
+	}
+
+	fprintf(out, "\n],\n");
+}
+
+void dump_outputs(glsl_program prg, FILE* out)
+{
+    struct gl_linked_shader* linked = _glsl_program_get_linked_shader(prg);
+    if (!linked) return;
+
+    fprintf(out, "\"outputs\": [\n");
+
+    bool first = true;
+
+	for (unsigned i = 0; i < prg->data->NumProgramResourceList; ++i) {
+		struct gl_program_resource  *res = &prg->data->ProgramResourceList[i];
+		if (res->Type != GL_PROGRAM_OUTPUT) 
+			continue;
+
+		struct gl_shader_variable  *input = (struct gl_shader_variable  *)res->Data;
+
+        if (!first)
+            fprintf(out, ",\n");
+        first = false;
+
+        fprintf(out, "    {\n");
+        fprintf(out, "      \"name\": \"%s\",\n", input->name);
+        fprintf(out, "      \"location\": %d\n", input->location);
+        fprintf(out, "    }");
+	}
+
+	fprintf(out, "\n],\n");
+}
+
+void dump_samplers(glsl_program prg, FILE* out)
+{  
+    struct gl_linked_shader* linked = _glsl_program_get_linked_shader(prg);
+    if (!linked) return;
+
+    struct gl_program_with_tgsi* prog =gl_program_with_tgsi::from_ptr(linked->Program);
+
+    fprintf(out, "\"samplers\": [\n");
+
+    bool first = true;
+
+	unsigned samplerIdx = 0;
+	for (unsigned i = 0; i < prg->data->NumProgramResourceList; ++i) {
+		struct gl_program_resource  *res = &prg->data->ProgramResourceList[i];
+		if (res->Type != GL_UNIFORM)
+			continue;
+
+		struct gl_uniform_storage *uni = (struct gl_uniform_storage *)res->Data;
+		if (uni->type->base_type != GLSL_TYPE_SAMPLER)
+			continue;
+
+		unsigned binding = prog->SamplerUnits[samplerIdx];
+		unsigned target  = prog->sh.SamplerTargets[samplerIdx];
+
+		if (!first)
+			fprintf(out, ",\n");
+		first = false;
+
+		fprintf(out, "  {\n");
+		fprintf(out, "    \"name\": \"%s\",\n", uni->name);
+		fprintf(out, "    \"location\": %u,\n", binding);
+		fprintf(out, "    \"target\": %u\n", target);
+		fprintf(out, "  }");
+
+		samplerIdx++;
+	}   
+	fprintf(out, "\n],\n");
+}
+
+void dump_shader_info(glsl_program prg, const char* filename)
+{
+    FILE* out = fopen(filename, "w");
+    if (!out) return;
+	
+    fprintf(out, "{\n");
+    dump_inputs(prg, out);
+	dump_outputs(prg, out);
+    dump_samplers(prg, out);
+	dump_uniforms_blocks(prg, out);
+    fprintf(out, "}\n");
+
+    fclose(out);
+}
+
 void glsl_program_free(glsl_program prg)
 {
 	for (unsigned i = 0; i < MESA_SHADER_STAGES; i++) {

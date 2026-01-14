@@ -24,4 +24,7 @@ const tgsi_token* glsl_program_get_tokens(glsl_program prg, unsigned int& num_to
 void* glsl_program_get_constant_buffer(glsl_program prg, unsigned int& out_size);
 int8_t const* glsl_program_vertex_get_in_locations(glsl_program prg);
 unsigned glsl_program_compute_get_shared_size(glsl_program prg);
+bool is_sampler_type(const struct glsl_type *type);
+void dump_uniforms(glsl_program prg, FILE* out);
+void dump_shader_info(glsl_program prg, const char* filename);
 void glsl_program_free(glsl_program prg);
