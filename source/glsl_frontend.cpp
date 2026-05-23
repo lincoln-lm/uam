@@ -268,6 +268,7 @@ initialize_context(struct gl_context *ctx, gl_api api)
 		options->MaxUnrollIterations = 16384;
 		options->LowerCombinedClipCullDistance = GL_TRUE;
 		options->LowerBufferInterfaceBlocks = GL_TRUE;
+
 	}
 
 	ctx->Const.MaxUserAssignableUniformLocations =
@@ -410,6 +411,8 @@ glsl_program glsl_program_create(const char* source, pipeline_stage stage)
 	}
 	_mesa_clear_shader_program_data(&gl_ctx, prg);
 
+	assign_default_sampler_bindings(shader);
+
 	// Link the shader
 	link_shaders(&gl_ctx, prg);
 	if (prg->data->LinkStatus != LINKING_SUCCESS)
@@ -485,41 +488,40 @@ glsl_program glsl_program_create(const char* source, pipeline_stage stage)
 			fprintf(stderr, "Translation failed\n");
 			goto _fail;
 		}
-
-		gl_program_parameter_list *pl = linked_shader->Program->Parameters;
-		unsigned last_location = ~0U;
-		bool has_uniforms_in_driver_cbuf = false;
-		for (unsigned i = 0; i < pl->NumParameters; i ++)
-		{
-			gl_program_parameter *p = &pl->Parameters[i];
-			unsigned location = 0;
-			if (!prg->UniformHash->get(location, p->Name))
-				continue;
-			gl_uniform_storage *storage = &prg->data->UniformStorage[location];
-			if (storage->builtin || storage->hidden)
-				continue;
-			if (location != last_location)
-			{
-				last_location = location;
-				fprintf(stderr, "error: uniform '%s' in driver constbuf (c[0x1][0x%03x]) not supported\n",
-					p->Name,
-					// "(type=%d dim=%ux%u size=%u)"
-					//storage->type->base_type,
-					//storage->type->matrix_columns, storage->type->vector_elements,
-					//storage->array_elements,
-					4*pl->ParameterValueOffset[i]);
-				has_uniforms_in_driver_cbuf = true;
-			}
-		}
-		if (has_uniforms_in_driver_cbuf)
-			goto _fail;
 	}
-
 	return prg;
 
 _fail:
 	glsl_program_free(prg);
 	return NULL;
+}
+
+static void assign_default_sampler_bindings(struct gl_shader* shader)
+{
+	if (!shader || !shader->ir)
+		return;
+
+	unsigned sampler_counter = 0;
+	foreach_in_list(ir_instruction, ir, shader->ir)
+	{
+		if (ir->ir_type != ir_type_variable)
+			continue;
+
+		ir_variable* var = (ir_variable*)ir;
+		if (var->data.mode != ir_var_uniform)
+			continue;
+
+		if (!var->type->contains_sampler())
+			continue;
+
+		if (!var->data.explicit_binding && var->data.used)
+		{
+			var->data.binding = sampler_counter;
+			var->data.explicit_binding = true;
+
+			sampler_counter++;
+		}
+	}
 }
 
 static struct gl_linked_shader *_glsl_program_get_linked_shader(glsl_program prg)
@@ -612,15 +614,15 @@ void dump_uniforms_blocks(glsl_program prg, FILE* out)
             if (!uniform)
                 continue;
 
-            if (!firstUniform)
-                fprintf(out, ",\n");
-            firstUniform = false;
+			if (!firstUniform)
+				fprintf(out, ",\n");
+			firstUniform = false;
 
-            fprintf(out, "      {\n");
-            fprintf(out, "        \"index\": %u,\n", u);
-            fprintf(out, "        \"name\": \"%s\",\n", uniform->Name ? uniform->Name : "<unnamed>");
-            fprintf(out, "        \"offset\": %u\n", uniform->Offset);
-            fprintf(out, "      }");
+			fprintf(out, "      {\n");
+			fprintf(out, "        \"index\": %u,\n", u);
+			fprintf(out, "        \"name\": \"%s\",\n", uniform->Name ? uniform->Name : "<unnamed>");
+			fprintf(out, "        \"offset\": %u\n", uniform->Offset);
+			fprintf(out, "      }");
         }
 
         fprintf(out, "\n    ]\n");
